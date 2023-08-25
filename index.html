@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html translate="no">
+<head>
+  <meta charset="utf-8">
+
+  <meta name="viewport" content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height, target-densitydpi=device-dpi, minimal-ui" />
+
+  <title>Scan</title>
+
+  <style>
+body {
+  margin: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr 5em 5em;
+}
+#live-view {
+  background: yellow;
+  text-align: center;
+  position: relative; /* for #paused */
+}
+#paused {
+  text-align: center;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-image: url("pause.png");
+  background-size: 100px 200px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+#counter {
+  position: absolute;
+  top: 1em; left: 1em;
+  z-index: 3;
+  width: 100px;
+}
+#torch {
+  position: absolute;
+  top: 1em; right: 1em;
+  z-index: 3;
+}
+#live-view video {
+}
+#live-view canvas {
+  position: absolute;
+  left:0; top: 0; 
+  z-index: 2;
+}
+#books {
+  display: flex;
+  flex-direction: row;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  transform: rotateX(180deg);
+}
+#books img {
+  padding-top: 5px;
+  border-right: 2px solid white;
+  transform: rotateX(180deg);
+}
+#submit {
+}
+#copy {
+}
+</style>
+</head>
+<body>
+<!-- https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js -->
+<script src="quagga.min.js"></script>
+
+<script>
+
+function startScanning() {
+  Quagga.init({
+    locale: true,
+    frequency: 10,
+    inputStream : {
+      name : "Live",
+      type : "LiveStream",
+      constraints: {
+        facingMode: "environment",
+        /*
+        aspectRatio: {
+          ideal: 0.5625,
+        },*/
+      },
+      target: document.querySelector('#live-view')
+    },
+    decoder : {
+      readers : ["ean_reader"],
+    },
+    locator: {
+      patchSize: "medium",
+      halfSample: true,
+    },
+  }, function(err) {
+    if (err) {
+      console.log(err);
+      return;
+    }
+    console.log("Initialization finished. Ready to start");
+    Quagga.start();
+    window.onresize();
+  });
+}
+
+Quagga.onProcessed(function(result) {
+  if (!result || !result.line) {
+    return;
+  }
+  const drawingCtx = Quagga.canvas.ctx.overlay,
+      drawingCanvas = Quagga.canvas.dom.overlay;
+  const video = document.querySelector("video");
+  const xFactor = drawingCanvas.offsetWidth / video.videoWidth;
+  const yFactor = drawingCanvas.offsetHeight / video.videoHeight;
+
+  drawingCtx.clearRect(0, 0, parseInt(drawingCanvas.getAttribute("width")), parseInt(drawingCanvas.getAttribute("height")));
+  const { line } = result;
+  const mappedLine = [{
+    x: line[0].x*xFactor,
+    y: line[0].y*yFactor
+  },
+  {
+    x: line[1].x*xFactor,
+    y: line[1].y*yFactor
+  }];
+  Quagga.ImageDebug.drawPath(mappedLine, {x: 'x', y: 'y'}, drawingCtx, {color: 'red', lineWidth: 3});
+});
+
+let lastResult;
+Quagga.onDetected(function(result) {
+  let code = result.codeResult.code;
+  if (lastResult === code) {
+    return;
+  }
+
+  let countDecodedCodes=0, err=0;
+  for(const error of result.codeResult.decodedCodes) {
+    if (error.error!=undefined) {
+      countDecodedCodes++;
+      err+=parseFloat(error.error);
+    }
+  }
+  if (err/countDecodedCodes < 0.3) {
+    lastResult = code;
+    newBook(code);
+  }
+});
+
+window.onload = () => {
+  startScanning();
+  newBook("9782756411149");
+  newBook("9782493428134");
+
+  setTimeout(async function() {
+    var track = Quagga.CameraAccess.getActiveTrack();
+    const capabilities = track.getCapabilities();
+    // Use a higher resolution, it seems to worsen detection!
+    //if (capabilities.width.max >= 1280 && capabilities.height.max >= 720) {
+    //  await track.applyConstraints({advanced: [{width: 1280, height: 720}]});
+    //}
+      //track.applyConstraints({advanced: [{zoom: 2.5}]});
+
+  }, 1000);
+
+  window.onresize();
+}
+window.onresize = () => {
+  document.querySelector("video").height = (window.innerHeight - (document.querySelector("#copy").offsetHeight * 2)) / 2;
+  refreshCanvas();
+}
+function refreshCanvas() {
+  const canvas = document.querySelector("canvas");
+  if (!canvas) {
+    setTimeout(refreshCanvas, 500);
+    return;
+  }
+  const video = document.querySelector("video");
+  canvas.width = video.offsetWidth;
+  canvas.height = video.offsetHeight;
+  canvas.style.left = Math.round(video.getBoundingClientRect().x) + "px";
+}
+
+let torchEnabled = false;
+function toggleTorch() {
+  var track = Quagga.CameraAccess.getActiveTrack();
+  torchEnabled = !torchEnabled;
+  document.querySelector("#torch input").checked = torchEnabled;
+  track.applyConstraints({advanced: [{torch:torchEnabled}]});
+}
+const isbns = [];
+function newBook(isbn) {
+  if (isbns.includes(isbn)) {
+    return;
+  }
+  isbns.push(isbn);
+  let attempt = 0;
+  const img = new Image();
+  img.onload = () => {
+    if (img.width == 1) {
+      img.onerror();
+      return;
+    }
+    document.querySelector("#books").appendChild(img);
+    img.scrollIntoView();
+    updateCount();
+  };
+  img.onerror = () => {
+    attempt++;
+    if (attempt == 1) {
+      img.src = `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`;
+    }
+  };
+  img.src = `https://pictures.abebooks.com/isbn/${isbn}-fr.jpg`;
+
+  img.onclick = () => {
+    isbns.splice(isbns.indexOf(isbn), 1);
+    img.remove();
+    updateCount();
+  }
+}
+
+function updateCount() {
+  const count = document.querySelector("#books").children.length;
+  document.querySelector("#counter").textContent = `${count} scans`;
+}
+
+let scanning = true;
+function toggleRecord(forcedValue) {
+  scanning = typeof(forcedValue)=="boolean" ? forcedValue : !scanning;
+  if (!scanning) {
+    Quagga.stop();
+    const canvas = document.querySelector("canvas");
+    if (canvas) {
+      canvas.remove();
+    }
+  } else {
+    startScanning();
+  }
+
+  document.querySelector("#paused").hidden = scanning;
+}
+
+function submit() {
+  toggleRecord(false);
+  const url = `https://www.chasse-aux-livres.fr/estimation-de-livres?ref=${isbns.join(',')}#isbns-form`;
+  window.open(url, "_blank");
+}
+
+function copy() {
+  navigator.share({ text: isbns.join(',') })
+}
+</script>
+
+<div id="counter"></div>
+<button id="torch" onclick="toggleTorch()">
+  <input type="checkbox" />
+  Lampe 
+</button>
+<div id="live-view" onclick="toggleRecord()">
+  <div id="paused" hidden></div>
+</div>
+<div id="books"></div>
+<button id="submit" onclick="submit()">Chasse aux livres</button>
+<button id="copy" onclick="copy()">Partager les ISBNs</button>
+
+</body>
+</html>
+
