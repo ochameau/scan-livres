@@ -155,8 +155,12 @@ Quagga.onDetected(function(result) {
 
 window.onload = () => {
   startScanning();
-  newBook("9782756411149");
-  newBook("9782493428134");
+
+  // Display some sample books, but only when requested by URL
+  if (location.href.includes("?test")) {
+    newBook("9782756411149");
+    newBook("9782493428134");
+  }
 
   setTimeout(async function() {
     var track = Quagga.CameraAccess.getActiveTrack();
