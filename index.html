@@ -59,10 +59,14 @@ body {
   overflow-y: hidden;
   transform: rotateX(180deg);
 }
-#books img {
+#books img, #books div {
   padding-top: 5px;
   border-right: 2px solid white;
   transform: rotateX(180deg);
+}
+#books div {
+  border: 1px solid black;
+  padding: 5px;
 }
 #submit {
 }
@@ -147,7 +151,8 @@ Quagga.onDetected(function(result) {
       err+=parseFloat(error.error);
     }
   }
-  if (err/countDecodedCodes < 0.3) {
+
+  if (err/countDecodedCodes < 0.1) {
     lastResult = code;
     newBook(code);
   }
@@ -225,11 +230,21 @@ function newBook(isbn) {
     document.querySelector("#books").appendChild(img);
     img.scrollIntoView();
     updateCount();
+    navigator.vibrate(200);
   };
   img.onerror = () => {
     attempt++;
     if (attempt == 1) {
       img.src = `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`;
+    } else {
+      const div = document.createElement("div");
+      div.textContent = isbn;
+      div.onclick = () => {
+        isbns.splice(isbns.indexOf(isbn), 1);
+        div.remove();
+        updateCount();
+      }
+      document.querySelector("#books").appendChild(div);
     }
   };
   img.src = `https://pictures.abebooks.com/isbn/${isbn}-fr.jpg`;
